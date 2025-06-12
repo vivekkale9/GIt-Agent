@@ -1,0 +1,75 @@
+#!/bin/bash
+
+# GitAgent - AI-powered Git Assistant
+
+# Determine script directory
+SCRIPT_DIR="$( cd "$( dirname "${BASH_SOURCE[0]}" )" &> /dev/null && pwd )"
+
+# Check if we're in a git repository
+if [ ! -d ".git" ]; then
+    echo "Error: Not in a Git repository. Please run this command from a Git repository root."
+    exit 1
+fi
+
+# Parse arguments
+VERSION="basic"
+AUTO_APPROVE=false
+QUERY=""
+
+while [[ $# -gt 0 ]]; do
+    case $1 in
+        --advanced|-a)
+            VERSION="advanced"
+            shift
+            ;;
+        --auto-approve|-y)
+            AUTO_APPROVE=true
+            shift
+            ;;
+        --workflow|-w)
+            VERSION="advanced"  # Workflow mode always uses advanced
+            shift
+            ;;
+        --help|-h)
+            echo "Usage: gitagent [OPTIONS] [QUERY]"
+            echo ""
+            echo "Options:"
+            echo "  --advanced, -a       Use the advanced LangGraph implementation"
+            echo "  --workflow, -w       Run in workflow mode (automated multi-step operations)"
+            echo "  --auto-approve, -y   Automatically approve all recommended commands"
+            echo "  --help, -h           Show this help message"
+            echo ""
+            echo "Examples:"
+            echo "  gitagent \"What's the status of my branch?\""
+            echo "  gitagent -a \"How do I push my changes?\""
+            echo "  gitagent -w \"Merge my feature branch into main\""
+            echo "  gitagent -w -y \"Update my branch with latest changes from main\""
+            exit 0
+            ;;
+        *)
+            if [ -z "$QUERY" ]; then
+                QUERY="$1"
+            else
+                QUERY="$QUERY $1"
+            fi
+            shift
+            ;;
+    esac
+done
+
+# If no query provided, get from user input
+if [ -z "$QUERY" ]; then
+    echo -n "What would you like to do with your Git repository? "
+    read QUERY
+fi
+
+# Run the appropriate version
+if [ "$VERSION" = "advanced" ]; then
+    if [ "$AUTO_APPROVE" = true ]; then
+        python "$SCRIPT_DIR/git_agent_langgraph.py" --auto-approve "$QUERY"
+    else
+        python "$SCRIPT_DIR/git_agent_langgraph.py" "$QUERY"
+    fi
+else
+    python "$SCRIPT_DIR/main.py" "$QUERY"
+fi 
