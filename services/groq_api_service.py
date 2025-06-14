@@ -95,7 +95,6 @@ class GroqAPIService:
             }
             
             try:
-                print(f"Making API call with key ending in ...{api_key.key[-4:]}")
                 response = requests.post(
                     self.base_url,
                     headers=headers,

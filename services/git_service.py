@@ -2,6 +2,7 @@ import json
 from typing import Dict, List, Tuple, Any, Literal, TypedDict
 from services.groq_api_service import GroqAPIService
 from utils.input_handler import get_confirmation
+from utils.streaming import stream_text, stream_formatted_text
 from langgraph.graph import StateGraph, END
 
 from utils.git_commands import (
@@ -175,9 +176,14 @@ class GitService:
         if command.startswith("git "):
             command = command[4:]
         
-        # Ask for confirmation
-        print(f"\n🔍 Recommended Git command: git {command}")
-        print(f"📝 Reasoning: {action['reasoning']}")
+        # Ask for confirmation with streaming display
+        print("\n", end='')
+        stream_text("🔍 Recommended Git command: ", delay=0.025, end='')
+        stream_text(f"git {command}", delay=0.015, end='\n')
+        
+        print("")  # Empty line for spacing
+        stream_text("📝 Reasoning: ", delay=0.025, end='')
+        stream_formatted_text(action['reasoning'], delay=0.015)
         
         confirmed = get_confirmation(
             "\n❓ Do you want to execute this command?", 
@@ -211,7 +217,8 @@ class GitService:
         
         # Check for errors or conflicts
         if "error" in result.lower() or "conflict" in result.lower():
-            print("\n⚠️ There might be an issue with the command execution.")
+            print("\n", end='')
+            stream_text("⚠️ There might be an issue with the command execution.", delay=0.025)
             continue_execution = get_confirmation(
                 "❓ Do you want to continue with the next steps?", 
                 default_yes=False
@@ -385,7 +392,8 @@ class GitService:
         }
         
         # Run the agentic workflow
-        print("\n🔍 Analyzing your Git repository...")
+        print("\n", end='')
+        stream_text("🔍 Analyzing your Git repository...", delay=0.03)
         final_state = self.agent.invoke(initial_state)
         
         # Extract commands from history for compatibility with controller
