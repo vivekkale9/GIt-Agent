@@ -1,6 +1,7 @@
 import json
 from typing import Dict, List, Tuple, Any, Literal, TypedDict
 from services.groq_api_service import GroqAPIService
+from utils.input_handler import get_confirmation
 from langgraph.graph import StateGraph, END
 
 from utils.git_commands import (
@@ -178,17 +179,16 @@ class GitService:
         print(f"\n🔍 Recommended Git command: git {command}")
         print(f"📝 Reasoning: {action['reasoning']}")
         
-        while True:
-            confirmation = input("\n❓ Do you want to execute this command? (yes/no): ").lower().strip()
-            if confirmation in ["yes", "y"]:
-                break
-            elif confirmation in ["no", "n"]:
-                print("❌ Command execution cancelled by user.")
-                state["execution_stopped"] = True
-                state["response"] = f"Command execution cancelled: git {command}"
-                return state
-            else:
-                print("Please enter 'yes' or 'no'")
+        confirmed = get_confirmation(
+            "\n❓ Do you want to execute this command?", 
+            default_yes=True
+        )
+        
+        if not confirmed:
+            print("❌ Command execution cancelled by user.")
+            state["execution_stopped"] = True
+            state["response"] = f"Command execution cancelled: git {command}"
+            return state
         
         # Execute the command
         print(f"\n🚀 Executing: git {command}")
@@ -212,16 +212,14 @@ class GitService:
         # Check for errors or conflicts
         if "error" in result.lower() or "conflict" in result.lower():
             print("\n⚠️ There might be an issue with the command execution.")
-            while True:
-                continue_execution = input("❓ Do you want to continue with the next steps? (yes/no): ").lower().strip()
-                if continue_execution in ["yes", "y"]:
-                    break
-                elif continue_execution in ["no", "n"]:
-                    print("❌ Workflow execution stopped by user.")
-                    state["execution_stopped"] = True
-                    break
-                else:
-                    print("Please enter 'yes' or 'no'")
+            continue_execution = get_confirmation(
+                "❓ Do you want to continue with the next steps?", 
+                default_yes=False
+            )
+            
+            if not continue_execution:
+                print("❌ Workflow execution stopped by user.")
+                state["execution_stopped"] = True
         
         return state
 
