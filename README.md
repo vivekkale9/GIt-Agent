@@ -66,7 +66,3 @@ gitagent/
 - "Merge the develop branch into main"
 - "What changes have I made but not committed?"
 - "Push my changes to origin"
-
-## Contributing
-
-Contributions are welcome! Please feel free to submit a Pull Request. 
