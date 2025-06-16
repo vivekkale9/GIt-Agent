@@ -647,6 +647,7 @@ class UnifiedGitAgent:
         
         # Check if execution was stopped
         if state.get("execution_stopped", False):
+            print("🛑 Execution was stopped by user")
             return "responder"
         
         # Check if we need to continue based on workflow analysis
@@ -655,6 +656,11 @@ class UnifiedGitAgent:
             original_query = session["original_query"].lower()
             workflow_context = state["workflow_context"]
             executed_commands = [entry["command"] for entry in session["execution_history"]]
+            
+            print(f"\n🔍 Workflow Analysis:")
+            print(f"   Original query: '{session['original_query']}'")
+            print(f"   Commands executed: {executed_commands}")
+            print(f"   Current step: {state['workflow_step']}")
             
             # Count total operations mentioned in the original query
             operation_keywords = [
@@ -669,68 +675,114 @@ class UnifiedGitAgent:
                 if keyword in original_query:
                     mentioned_operations.append(keyword)
             
-            # Special handling for compound operations
-            if "pull" in original_query and "merge" in original_query:
-                # This is clearly a multi-step: pull + merge
-                operations_needed = 2
-                if "switch" in original_query or "checkout" in original_query:
-                    operations_needed += 1
-            elif "stage" in original_query and "commit" in original_query:
-                operations_needed = 2
-                if "push" in original_query:
-                    operations_needed += 1
-            elif "create" in original_query and "branch" in original_query:
-                operations_needed = 1
-                if any(op in original_query for op in ["switch", "checkout", "commit", "push"]):
-                    operations_needed += 1
-            else:
-                # Count distinct operation types mentioned
-                operations_needed = len(mentioned_operations)
+            print(f"   Operations mentioned: {mentioned_operations}")
             
-            # Check specific workflow patterns that need completion
+            # Special handling for compound operations
+            operations_needed = 0
             workflow_incomplete = False
             
-            # Pattern: switch + pull + merge workflow
-            if "pull" in original_query and "merge" in original_query:
+            # Analyze the specific query patterns
+            if ("switch" in original_query or "checkout" in original_query) and "pull" in original_query and "merge" in original_query:
+                # Pattern: "Switch to main, pull latest changes, and merge into current branch"
+                print("   📋 Detected: Switch + Pull + Merge workflow")
+                
+                has_switched = any("checkout" in cmd or "switch" in cmd for cmd in executed_commands)
                 has_pulled = any("pull" in cmd for cmd in executed_commands)
                 has_merged = any("merge" in cmd for cmd in executed_commands)
+                
+                print(f"   ✅ Switched: {has_switched}, Pulled: {has_pulled}, Merged: {has_merged}")
+                
+                if not has_switched:
+                    workflow_incomplete = True
+                    print("   ⏳ Still need to switch branch")
+                elif not has_pulled:
+                    workflow_incomplete = True  
+                    print("   ⏳ Still need to pull changes")
+                elif not has_merged:
+                    workflow_incomplete = True
+                    print("   ⏳ Still need to merge changes")
+                
+                operations_needed = 3
+                
+            elif "pull" in original_query and "merge" in original_query:
+                # Pattern: pull + merge
+                print("   📋 Detected: Pull + Merge workflow")
+                
+                has_pulled = any("pull" in cmd for cmd in executed_commands)
+                has_merged = any("merge" in cmd for cmd in executed_commands)
+                
+                print(f"   ✅ Pulled: {has_pulled}, Merged: {has_merged}")
+                
                 if not has_pulled or not has_merged:
                     workflow_incomplete = True
-            
-            # Pattern: stage + commit + push workflow  
-            elif "commit" in original_query:
+                    
+                operations_needed = 2
+                
+            elif ("stage" in original_query or "add" in original_query) and "commit" in original_query:
+                # Pattern: stage + commit + optional push
+                print("   📋 Detected: Stage + Commit workflow")
+                
+                has_staged = any("add" in cmd for cmd in executed_commands)
                 has_committed = any("commit" in cmd for cmd in executed_commands)
-                if not has_committed:
+                has_pushed = any("push" in cmd for cmd in executed_commands)
+                
+                print(f"   ✅ Staged: {has_staged}, Committed: {has_committed}, Pushed: {has_pushed}")
+                
+                operations_needed = 2
+                if "push" in original_query:
+                    operations_needed = 3
+                
+                if not has_staged or not has_committed:
                     workflow_incomplete = True
-                elif "push" in original_query:
-                    has_pushed = any("push" in cmd for cmd in executed_commands)
-                    if not has_pushed:
-                        workflow_incomplete = True
-            
-            # Pattern: create branch + switch workflow
+                elif "push" in original_query and not has_pushed:
+                    workflow_incomplete = True
+                    
             elif "create" in original_query and "branch" in original_query:
+                # Pattern: create branch
+                print("   📋 Detected: Create Branch workflow")
+                
                 has_created_branch = any("checkout -b" in cmd or "switch -c" in cmd for cmd in executed_commands)
+                
+                print(f"   ✅ Created branch: {has_created_branch}")
+                
+                operations_needed = 1
                 if not has_created_branch and not workflow_context.get("new_branch_created"):
                     workflow_incomplete = True
-            
-            # Pattern: delete branch workflow
-            elif workflow_context.get("delete_current_branch") and not workflow_context.get("branch_deleted"):
-                workflow_incomplete = True
-            
-            # General pattern: more operations mentioned than executed
-            elif len(executed_commands) < operations_needed:
-                workflow_incomplete = True
+                    
+            elif workflow_context.get("delete_current_branch"):
+                # Pattern: delete branch workflow
+                print("   📋 Detected: Delete Branch workflow")
+                
+                if not workflow_context.get("branch_deleted"):
+                    workflow_incomplete = True
+                    operations_needed = 2  # switch + delete
+                    
+            else:
+                # General pattern: count operations
+                print("   📋 General workflow - counting operations")
+                operations_needed = len(mentioned_operations)
+                
+                if len(executed_commands) < operations_needed:
+                    workflow_incomplete = True
             
             # Check if the last command failed verification
             last_verification = state.get("verification_results", {})
             command_failed = not last_verification.get("success", True)
             
+            print(f"   📊 Summary:")
+            print(f"      Operations needed: {operations_needed}")
+            print(f"      Commands executed: {len(executed_commands)}")
+            print(f"      Workflow incomplete: {workflow_incomplete}")
+            print(f"      Last command failed: {command_failed}")
+            
             # Continue if workflow is incomplete or last command failed
             if workflow_incomplete or command_failed:
-                print(f"🔄 Continuing workflow - Operations needed: {operations_needed}, Executed: {len(executed_commands)}, Incomplete: {workflow_incomplete}")
+                print(f"🔄 CONTINUING workflow")
                 return "analyzer"
             else:
-                print(f"✅ Workflow complete - Operations needed: {operations_needed}, Executed: {len(executed_commands)}")
+                print(f"✅ COMPLETING workflow")
+        else:
+            print("ℹ️ Not an execute_command action, ending workflow")
         
         return "responder"
 
