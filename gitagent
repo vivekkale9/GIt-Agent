@@ -1,6 +1,6 @@
 #!/bin/bash
 
-# GitAgent - AI-powered Git Assistant
+# GitAgent - Unified AI-powered Git Assistant with Persistent Context
 
 # Determine script directory
 SCRIPT_DIR="$( cd "$( dirname "${BASH_SOURCE[0]}" )" &> /dev/null && pwd )"
@@ -12,38 +12,51 @@ if [ ! -d ".git" ]; then
 fi
 
 # Parse arguments
-VERSION="basic"
 AUTO_APPROVE=false
 QUERY=""
 
 while [[ $# -gt 0 ]]; do
     case $1 in
-        --advanced|-a)
-            VERSION="advanced"
-            shift
-            ;;
         --auto-approve|-y)
             AUTO_APPROVE=true
             shift
             ;;
+        --advanced|-a)
+            # Legacy flag - now ignored since we have unified implementation
+            echo "ℹ️  Note: Advanced mode is now the default. All features are unified."
+            shift
+            ;;
         --workflow|-w)
-            VERSION="advanced"  # Workflow mode always uses advanced
+            # Legacy flag - now ignored since workflow is built-in
+            echo "ℹ️  Note: Workflow mode is now built-in. All operations support multi-step workflows."
             shift
             ;;
         --help|-h)
             echo "Usage: gitagent [OPTIONS] [QUERY]"
             echo ""
+            echo "GitAgent is a unified AI-powered Git assistant with persistent context management."
+            echo ""
             echo "Options:"
-            echo "  --advanced, -a       Use the advanced LangGraph implementation"
-            echo "  --workflow, -w       Run in workflow mode (automated multi-step operations)"
             echo "  --auto-approve, -y   Automatically approve all recommended commands"
             echo "  --help, -h           Show this help message"
             echo ""
+            echo "Features:"
+            echo "  • Persistent workflow sessions across multiple invocations"
+            echo "  • Automatic command verification and success tracking"
+            echo "  • Context-aware multi-step Git operations"
+            echo "  • Intelligent error recovery and workflow resumption"
+            echo "  • Session management stored in .git/gitagent_sessions/"
+            echo ""
             echo "Examples:"
             echo "  gitagent \"What's the status of my branch?\""
-            echo "  gitagent -a \"How do I push my changes?\""
-            echo "  gitagent -w \"Merge my feature branch into main\""
-            echo "  gitagent -w -y \"Update my branch with latest changes from main\""
+            echo "  gitagent \"Delete current branch and create a new feature branch\""
+            echo "  gitagent -y \"Stage all changes, commit, and push to origin\""
+            echo "  gitagent \"continue\"  # Resume interrupted workflow"
+            echo ""
+            echo "Session Management:"
+            echo "  • Sessions are automatically created for multi-step operations"
+            echo "  • Interrupted workflows can be resumed by running gitagent again"
+            echo "  • Session history is preserved for context and verification"
             exit 0
             ;;
         *)
@@ -63,13 +76,9 @@ if [ -z "$QUERY" ]; then
     read QUERY
 fi
 
-# Run the appropriate version
-if [ "$VERSION" = "advanced" ]; then
-    if [ "$AUTO_APPROVE" = true ]; then
-        python "$SCRIPT_DIR/git_agent_langgraph.py" --auto-approve "$QUERY"
-    else
-        python "$SCRIPT_DIR/git_agent_langgraph.py" "$QUERY"
-    fi
+# Run the unified GitAgent implementation
+if [ "$AUTO_APPROVE" = true ]; then
+    python "$SCRIPT_DIR/git_agent_langgraph.py" --auto-approve "$QUERY"
 else
-    python "$SCRIPT_DIR/main.py" "$QUERY"
+    python "$SCRIPT_DIR/git_agent_langgraph.py" "$QUERY"
 fi 

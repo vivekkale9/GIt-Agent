@@ -102,7 +102,7 @@ class GroqAPIService:
                     timeout=30
                 )
                 
-                if response.status_code == 200:
+                if response.status_code == 200: 
                     result = response.json()
                     return result["choices"][0]["message"]["content"]
                 elif response.status_code == 429:  # Rate limit exceeded

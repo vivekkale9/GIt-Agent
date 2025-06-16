@@ -30,6 +30,9 @@ class GitAgentState(TypedDict):
     action: GitAction
     response: str
     execution_stopped: bool
+    workflow_step: int  # Track which step we're on in multi-step workflows
+    original_branch: str  # Remember the original branch when workflow started
+    workflow_context: Dict[str, Any]  # Track workflow-specific context
 
 class GitService:
     def __init__(self):
@@ -37,7 +40,6 @@ class GitService:
         self.agent = self._build_agent()
     
     def get_repo_info(self) -> Dict[str, str]:
-        """Gather comprehensive information about the current Git repository."""
         return {
             "status": get_git_status(),
             "branches": get_git_branch(),
@@ -48,64 +50,124 @@ class GitService:
             "remotes": get_remotes()
         }
     
+    def _extract_current_branch(self, branches_output: str) -> str:
+        """Extract the current branch name from git branch output."""
+        lines = branches_output.split('\n')
+        for line in lines:
+            if line.strip().startswith('*'):
+                # Remove the * and any extra whitespace
+                current_branch = line.strip()[1:].strip()
+                # Handle detached HEAD state
+                if current_branch.startswith('('):
+                    return "HEAD (detached)"
+                return current_branch
+        return "unknown"
+    
     # Agent workflow nodes
     def _analyzer(self, state: GitAgentState) -> GitAgentState:
         """Analyze the repository and decide what action to take."""
         
+        # Check if this is a continuation of a multi-step workflow
+        executed_commands = [entry["action"]["command"] for entry in state["history"] 
+                           if "state" in entry and entry["state"] == "command_executor" and "action" in entry]
+        
+        context_info = ""
+        if executed_commands:
+            context_info = f"\nCommands already executed in this workflow: {', '.join([f'git {cmd}' for cmd in executed_commands])}"
+        
+        # Extract current branch from git status/branch info
+        current_branch = self._extract_current_branch(state["branches"])
+        
+        # On first analysis, set up workflow context for branch operations
+        if state["workflow_step"] == 0 and not state["workflow_context"]:
+            original_query = state["query"].lower()
+            
+            # Parse the original intent and remember key context
+            if "delete" in original_query and ("current branch" in original_query or "this branch" in original_query):
+                state["workflow_context"]["target_branch_to_delete"] = state["original_branch"]
+                state["workflow_context"]["delete_current_branch"] = True
+                context_info += f"\nOriginal branch to delete: {state['original_branch']}"
+            
+            if "create" in original_query and "branch" in original_query:
+                # Extract new branch name if possible
+                import re
+                branch_match = re.search(r'branch\s+(?:named\s+)?([^\s]+)', original_query)
+                if branch_match:
+                    state["workflow_context"]["new_branch_name"] = branch_match.group(1)
+        
+        # Use workflow context to avoid re-interpreting intent
+        branch_to_delete = state["workflow_context"].get("target_branch_to_delete", current_branch)
+        
         prompt = f"""
-        You are GitAgent, an AI assistant specialized in Git operations.
-        Analyze the Git repository information provided and respond to the user's request.
+        You are GitAgent, an AI assistant specialized in Git operations with deep knowledge of Git constraints and best practices.
         
         Git repository information:
         - Status: {state["status"]}
         - Current branches: {state["branches"]}
+        - Current branch: {current_branch}
+        - Original branch (when workflow started): {state["original_branch"]}
         - Recent commits: {state["recent_commits"]}
         - Current changes: {state["diff_stat"]}
         
-        User query: {state["query"]}
+        User query: {state["query"]}{context_info}
         
-        IMPORTANT: You should be PROACTIVE and choose "execute_command" whenever the user wants to perform actual Git operations.
+        WORKFLOW CONTEXT - IMPORTANT:
+        - If user said "delete current branch" they meant the original branch: {state["original_branch"]}
+        - Target branch to delete: {branch_to_delete}
+        - Do NOT re-interpret "current branch" after switching branches
+        - Workflow step: {state["workflow_step"]}
         
-        Choose "execute_command" if the user wants to:
+        IMPORTANT Git Workflow Rules - You MUST follow these:
+        1. **Cannot delete current branch**: If user wants to delete the current branch, you MUST first checkout to a different branch (usually 'main' or 'master')
+        2. **Branch deletion context**: When user says "delete current branch", they mean the branch they were on when they started ({state["original_branch"]}), NOT the branch they're on now after switching
+        3. **Branch creation flow**: When creating branches, ensure you're on the right base branch first
+        4. **Staging before commit**: Always stage changes before committing
+        5. **Push new branches**: Use -u flag when pushing new branches for the first time
+        
+        PROACTIVE ERROR PREVENTION:
+        - If user wants to delete original branch "{state["original_branch"]}" and we're still on it, first command should be switching to 'main' or 'master'
+        - Once we've switched away from "{state["original_branch"]}", we can safely delete it
+        - If user wants to commit but files aren't staged, add staging step first
+        - If user wants to push a new branch, include the -u origin flag
+        
+        Multi-step workflow handling:
+        1. Execute ONE command at a time
+        2. After each command, user will be asked for confirmation for the NEXT step
+        3. Continue until the entire user request is fulfilled
+        4. Account for Git constraints in your command sequence
+        5. Remember original context - don't re-interpret after branch switches
+        
+        Choose "execute_command" for Git operations:
         - Add files (git add)
         - Commit changes (git commit)
         - Push changes (git push)
         - Pull changes (git pull)
         - Create or switch branches (git branch, git checkout, git switch)
-        - Merge branches (git merge)
-        - Rebase (git rebase)
+        - Merge branches (git merge) 
+        - Delete branches (git branch -d/-D) - BUT checkout first if deleting current branch
         - Stash changes (git stash)
         - Reset changes (git reset)
-        - Clone repositories (git clone)
-        - Any other Git action that modifies the repository state
         
-        Choose "provide_info" ONLY if the user is asking for:
-        - Information about the current state
-        - Help understanding Git concepts
-        - Explanations of what happened
-        - Questions about Git without wanting to perform actions
+        Choose "provide_info" ONLY for:
+        - Information requests
+        - Help with Git concepts
+        - Status explanations
+        - Non-action queries
         
-        For action-oriented queries like "add all changes", "commit this", "push to remote", etc., 
-        you should ALWAYS choose "execute_command".
+        For multi-step queries, determine the NEXT command based on:
+        1. User's original request (interpreted once at the beginning)
+        2. Commands already executed
+        3. Git workflow constraints and best practices
+        4. What still needs to be done
+        5. Workflow context (don't re-interpret original intent)
         
-        CRITICAL: Return ONLY a valid JSON object, nothing else. No explanations, no additional text.
+        CRITICAL: Return ONLY a valid JSON object, nothing else.
         
         JSON structure:
         {{
             "action_type": "execute_command" | "provide_info" | "end",
             "command": "the git command to execute (if applicable)",
             "reasoning": "your reasoning for this action, including any additional steps that will be needed"
-        }}
-        
-        If you choose "execute_command":
-        1. Put the FIRST command that needs to be run in the "command" field (without "git " prefix)
-        2. In "reasoning", explain what this command will do and mention any subsequent steps needed
-        
-        Example for "add all changes":
-        {{
-            "action_type": "execute_command",
-            "command": "add .",
-            "reasoning": "This will stage all modified and new files for commit. After this, you'll likely want to commit these changes with a meaningful commit message."
         }}
         
         RESPOND WITH ONLY THE JSON OBJECT, NO OTHER TEXT.
@@ -177,8 +239,9 @@ class GitService:
             command = command[4:]
         
         # Ask for confirmation with streaming display
+        step_info = f" (Step {state['workflow_step'] + 1})" if state['workflow_step'] > 0 else ""
         print("\n", end='')
-        stream_text("🔍 Recommended Git command: ", delay=0.025, end='')
+        stream_text(f"🔍 Recommended Git command{step_info}: ", delay=0.025, end='')
         stream_text(f"git {command}", delay=0.015, end='\n')
         
         print("")  # Empty line for spacing
@@ -202,6 +265,19 @@ class GitService:
         
         # Update state with execution results
         state["response"] = f"✅ Command executed: git {command}\nResult:\n{result}"
+        state["workflow_step"] += 1  # Increment step counter
+        
+        # Update workflow context to track completed operations
+        if "branch -d" in command or "branch -D" in command:
+            state["workflow_context"]["branch_deleted"] = True
+        elif "checkout -b" in command or "switch -c" in command:
+            state["workflow_context"]["new_branch_created"] = True
+        elif command.startswith("add"):
+            state["workflow_context"]["changes_staged"] = True
+        elif command.startswith("commit"):
+            state["workflow_context"]["changes_committed"] = True
+        elif command.startswith("push"):
+            state["workflow_context"]["changes_pushed"] = True
         
         # Add to history
         state["history"].append({"action": action, "result": result, "state": "command_executor"})
@@ -324,9 +400,76 @@ class GitService:
         
         # Check if we need to re-analyze after command execution
         if state["action"]["action_type"] == "execute_command":
-            # Look at the reasoning to see if more steps are needed
             reasoning = state["action"]["reasoning"]
-            if "next step" in reasoning.lower() or "additional step" in reasoning.lower() or "subsequent step" in reasoning.lower():
+            original_query = state["query"].lower()
+            
+            executed_commands = [entry["action"]["command"] for entry in state["history"] 
+                               if "state" in entry and entry["state"] == "command_executor" and "action" in entry]
+            
+            # Check for explicit continuation indicators in reasoning
+            continuation_keywords = [
+                "next step", "additional step", "subsequent step", "then", "after this",
+                "following", "next", "continue", "more steps", "still need", "will be to"
+            ]
+            
+            has_continuation_indicator = any(keyword in reasoning.lower() for keyword in continuation_keywords)
+            
+            # Enhanced workflow pattern detection using context
+            unfulfilled_operations = []
+            
+            # Use workflow context to track what still needs to be done
+            workflow_context = state.get("workflow_context", {})
+            
+            # Pattern: Delete original branch workflow
+            if workflow_context.get("delete_current_branch"):
+                target_branch = workflow_context.get("target_branch_to_delete")
+                if target_branch:
+                    # Check if we've already deleted the target branch using context flag
+                    branch_already_deleted = workflow_context.get("branch_deleted", False)
+                    
+                    if not branch_already_deleted:
+                        # Check if we've switched away from the target branch first
+                        if any("checkout" in cmd or "switch" in cmd for cmd in executed_commands):
+                            unfulfilled_operations.append("delete original branch")
+                        else:
+                            unfulfilled_operations.append("checkout to safe branch first")
+            
+            # Pattern: Create new branch  
+            if "create" in original_query and "branch" in original_query:
+                new_branch_created = workflow_context.get("new_branch_created", False)
+                if not new_branch_created:
+                    unfulfilled_operations.append("create new branch")
+            
+            # Pattern: Add/stage changes
+            if any(keyword in original_query for keyword in ["add", "stage", "changes"]):
+                changes_staged = workflow_context.get("changes_staged", False)
+                if not changes_staged:
+                    unfulfilled_operations.append("stage changes")
+            
+            # Pattern: Commit changes
+            if "commit" in original_query:
+                changes_committed = workflow_context.get("changes_committed", False)
+                if not changes_committed:
+                    unfulfilled_operations.append("commit changes")
+            
+            # Pattern: Push changes
+            if "push" in original_query:
+                changes_pushed = workflow_context.get("changes_pushed", False)
+                if not changes_pushed:
+                    unfulfilled_operations.append("push changes")
+            
+            # Count distinct operations mentioned vs executed
+            operation_keywords = ["delete", "create", "add", "stage", "commit", "push", "merge", "checkout", "switch"]
+            mentioned_operations = sum(1 for keyword in operation_keywords if keyword in original_query)
+            
+            # Continue if there are clear signs more steps are needed
+            should_continue = (
+                has_continuation_indicator or  # Reasoning explicitly mentions more steps
+                unfulfilled_operations or  # Specific operations still pending
+                (mentioned_operations > len(executed_commands))  # More operations mentioned than executed
+            )
+            
+            if should_continue:
                 return "analyzer"
         
         return "responder"
@@ -371,11 +514,8 @@ class GitService:
         return workflow.compile()
     
     def process_query(self, query: str) -> Tuple[str, List[str]]:
-        """Process a user query using the agentic workflow and return response and commands."""
-        # Get repository information
         repo_info = self.get_repo_info()
         
-        # Create initial state for the agent
         initial_state = {
             "query": query,
             "status": repo_info["status"],
@@ -388,7 +528,10 @@ class GitService:
             "history": [],
             "action": {"action_type": "", "command": "", "reasoning": ""},
             "response": "",
-            "execution_stopped": False
+            "execution_stopped": False,
+            "workflow_step": 0,
+            "original_branch": self._extract_current_branch(repo_info["branches"]),
+            "workflow_context": {}
         }
         
         # Run the agentic workflow
