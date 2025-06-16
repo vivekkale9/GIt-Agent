@@ -232,7 +232,7 @@ class UnifiedGitAgent:
         if state["workflow_step"] == 0 and not state["workflow_context"]:
             original_query = session["original_query"].lower()
             
-            # Parse and store workflow intent
+            
             if "delete" in original_query and ("current branch" in original_query or "this branch" in original_query):
                 state["workflow_context"]["target_branch_to_delete"] = session["original_branch"]
                 state["workflow_context"]["delete_current_branch"] = True
