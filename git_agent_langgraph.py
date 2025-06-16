@@ -654,30 +654,83 @@ class UnifiedGitAgent:
             session = state["session"]
             original_query = session["original_query"].lower()
             workflow_context = state["workflow_context"]
+            executed_commands = [entry["command"] for entry in session["execution_history"]]
             
-            # Determine if workflow is complete based on context and verification
-            workflow_complete = True
+            # Count total operations mentioned in the original query
+            operation_keywords = [
+                "switch", "checkout", "pull", "push", "merge", "rebase", 
+                "create", "delete", "add", "stage", "commit", "unstage",
+                "stash", "reset", "cherry-pick", "tag", "fetch"
+            ]
             
-            # Check for incomplete operations
-            if workflow_context.get("delete_current_branch") and not workflow_context.get("branch_deleted"):
-                workflow_complete = False
+            # Count how many distinct operations were mentioned
+            mentioned_operations = []
+            for keyword in operation_keywords:
+                if keyword in original_query:
+                    mentioned_operations.append(keyword)
             
-            if "create" in original_query and "branch" in original_query and not workflow_context.get("new_branch_created"):
-                workflow_complete = False
+            # Special handling for compound operations
+            if "pull" in original_query and "merge" in original_query:
+                # This is clearly a multi-step: pull + merge
+                operations_needed = 2
+                if "switch" in original_query or "checkout" in original_query:
+                    operations_needed += 1
+            elif "stage" in original_query and "commit" in original_query:
+                operations_needed = 2
+                if "push" in original_query:
+                    operations_needed += 1
+            elif "create" in original_query and "branch" in original_query:
+                operations_needed = 1
+                if any(op in original_query for op in ["switch", "checkout", "commit", "push"]):
+                    operations_needed += 1
+            else:
+                # Count distinct operation types mentioned
+                operations_needed = len(mentioned_operations)
             
-            if any(keyword in original_query for keyword in ["add", "stage"]) and not workflow_context.get("changes_staged"):
-                workflow_complete = False
+            # Check specific workflow patterns that need completion
+            workflow_incomplete = False
             
-            if "commit" in original_query and not workflow_context.get("changes_committed"):
-                workflow_complete = False
+            # Pattern: switch + pull + merge workflow
+            if "pull" in original_query and "merge" in original_query:
+                has_pulled = any("pull" in cmd for cmd in executed_commands)
+                has_merged = any("merge" in cmd for cmd in executed_commands)
+                if not has_pulled or not has_merged:
+                    workflow_incomplete = True
             
-            if "push" in original_query and not workflow_context.get("changes_pushed"):
-                workflow_complete = False
+            # Pattern: stage + commit + push workflow  
+            elif "commit" in original_query:
+                has_committed = any("commit" in cmd for cmd in executed_commands)
+                if not has_committed:
+                    workflow_incomplete = True
+                elif "push" in original_query:
+                    has_pushed = any("push" in cmd for cmd in executed_commands)
+                    if not has_pushed:
+                        workflow_incomplete = True
             
-            # Continue if workflow is incomplete or if the last command failed verification
+            # Pattern: create branch + switch workflow
+            elif "create" in original_query and "branch" in original_query:
+                has_created_branch = any("checkout -b" in cmd or "switch -c" in cmd for cmd in executed_commands)
+                if not has_created_branch and not workflow_context.get("new_branch_created"):
+                    workflow_incomplete = True
+            
+            # Pattern: delete branch workflow
+            elif workflow_context.get("delete_current_branch") and not workflow_context.get("branch_deleted"):
+                workflow_incomplete = True
+            
+            # General pattern: more operations mentioned than executed
+            elif len(executed_commands) < operations_needed:
+                workflow_incomplete = True
+            
+            # Check if the last command failed verification
             last_verification = state.get("verification_results", {})
-            if not workflow_complete or not last_verification.get("success", True):
+            command_failed = not last_verification.get("success", True)
+            
+            # Continue if workflow is incomplete or last command failed
+            if workflow_incomplete or command_failed:
+                print(f"🔄 Continuing workflow - Operations needed: {operations_needed}, Executed: {len(executed_commands)}, Incomplete: {workflow_incomplete}")
                 return "analyzer"
+            else:
+                print(f"✅ Workflow complete - Operations needed: {operations_needed}, Executed: {len(executed_commands)}")
         
         return "responder"
 
