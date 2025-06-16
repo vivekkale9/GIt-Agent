@@ -290,17 +290,25 @@ class UnifiedGitAgent:
         4. ONLY choose "provide_info" for pure information questions like "what is the status?"
         5. Include specific verification commands to confirm each step worked
         
+        INTERACTIVE COMMAND HANDLING:
+        - For rebase operations, use non-interactive flags to prevent hanging
+        - For merge operations, include --no-edit to avoid editor
+        - For commits without messages, provide default message
+        - NEVER use commands that require user interaction in automated mode
+        
         Git Workflow Rules:
         1. Cannot delete current branch - checkout to different branch first
         2. When user says "delete current branch" they mean original branch: {session["original_branch"]}
         3. Verify prerequisites before executing
         4. If previous commands failed, address those issues first
+        5. For rebase, use: "rebase <target-branch>" (system will add non-interactive flags)
+        6. For interactive operations, warn about complexity and provide safer alternatives
         
         For the query "{session["original_query"]}", determine the NEXT SPECIFIC COMMAND to execute.
         
         Examples of good responses:
         - For "unstage changes": {{"action_type": "execute_command", "command": "reset HEAD .", "reasoning": "...", "expected_outcome": "...", "verification_commands": ["status"]}}
-        - For "create branch": {{"action_type": "execute_command", "command": "checkout -b feature/name", "reasoning": "...", "expected_outcome": "...", "verification_commands": ["branch"]}}
+        - For "rebase onto main": {{"action_type": "execute_command", "command": "rebase main", "reasoning": "...", "expected_outcome": "...", "verification_commands": ["status", "log --oneline -5"]}}
         
         RESPOND WITH ONLY A VALID JSON OBJECT:
         {{
