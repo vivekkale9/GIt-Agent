@@ -6,6 +6,9 @@ from typing import Dict, List, Optional
 from dataclasses import dataclass
 from dotenv import load_dotenv
 
+# Import configuration
+from .config import GROQ_CONFIG
+
 # Load environment variables from .env file
 load_dotenv()
 
@@ -17,23 +20,26 @@ class GroqAPIKey:
 
 class GroqAPIService:
     def __init__(self):
-        # Load API keys from environment variables
-        self.api_keys = self._load_api_keys_from_env()
+        # Load API keys using config file with environment variable fallbacks
+        self.api_keys = self._load_api_keys()
         self.current_key_index = 0
-        self.base_url = os.getenv("GROQ_BASE_URL", "")
-        self.model = os.getenv("GROQ_MODEL", "")
+        
+        # Load base URL and model with environment variable fallbacks
+        self.base_url = os.getenv("GROQ_BASE_URL") or GROQ_CONFIG.get("base_url", "")
+        self.model = os.getenv("GROQ_MODEL") or GROQ_CONFIG.get("model", "")
         
         # Validate that we have at least one API key
         if not self.api_keys:
             raise ValueError(
-                "No Groq API keys found in environment variables. "
+                "No Groq API keys found in configuration or environment variables."
             )
     
-    def _load_api_keys_from_env(self) -> List[GroqAPIKey]:
-        """Load API keys from environment variables."""
+    def _load_api_keys(self) -> List[GroqAPIKey]:
+        """Load API keys from environment variables first, then config file."""
         keys = []
-        key_index = 1
         
+        # First try to load from environment variables (development)
+        key_index = 1
         while True:
             key_name = f"GROQ_API_KEY_{key_index}"
             api_key = os.getenv(key_name)
@@ -43,6 +49,11 @@ class GroqAPIService:
                 key_index += 1
             else:
                 break
+        
+        # If no environment variables found, use config file (PyPI package)
+        if not keys and GROQ_CONFIG.get("api_keys"):
+            for api_key in GROQ_CONFIG["api_keys"]:
+                keys.append(GroqAPIKey(api_key))
         
         return keys
     

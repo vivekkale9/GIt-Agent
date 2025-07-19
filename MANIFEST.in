@@ -1,0 +1,10 @@
+include README.md
+include requirements.txt
+include LICENSE
+include *.py
+include gitagent
+recursive-include utils *.py
+recursive-include services *.py
+recursive-include controllers *.py
+global-exclude __pycache__
+global-exclude *.py[co] 

@@ -25,7 +25,6 @@ venv/
 ENV/
 env/
 .env
-git_agent/
 
 # IDE files
 .idea/
@@ -47,6 +46,21 @@ logs/
 .env.test.local
 .env.production.local
 
+# Config file with sensitive data (don't commit to Git)
+services/config.py
+
 # Jupyter Notebooks
 .ipynb_checkpoints
-*.ipynb 
+*.ipynb
+
+# PyPI packaging
+build/
+dist/
+*.egg-info/
+.pypirc
+
+# Twine upload credentials
+.twinerc
+
+# PyPI credentials (very important!)
+.pypirc 

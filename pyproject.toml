@@ -1,0 +1,72 @@
+[build-system]
+requires = ["setuptools>=61.0", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "gitagent-ai"
+version = "1.0.4"
+description = "AI-powered Git assistant with persistent context management"
+readme = "README.md"
+requires-python = ">=3.8"
+license = {text = "MIT"}
+keywords = ["git", "ai", "assistant", "automation", "version-control"]
+authors = [
+    {name = "Vivek Kale", email = "vivekskale03@gmail.com"}
+]
+classifiers = [
+    "Development Status :: 4 - Beta",
+    "Intended Audience :: Developers",
+    "Topic :: Software Development :: Version Control :: Git",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.8",
+    "Programming Language :: Python :: 3.9",
+    "Programming Language :: Python :: 3.10",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+    "Operating System :: OS Independent",
+]
+dependencies = [
+    "requests>=2.31.0",
+    "pydantic>=2.6.3",
+    "langgraph>=0.0.15",
+    "langchain-core>=0.1.27",
+    "python-dotenv>=1.0.0",
+    "pymongo>=4.6.0",
+    "click>=8.0.0",
+]
+
+[project.optional-dependencies]
+dev = [
+    "twine>=4.0.0",
+    "build>=0.10.0",
+    "pytest>=7.0.0",
+    "black>=22.0.0",
+    "flake8>=5.0.0",
+]
+
+[project.urls]
+Homepage = "https://github.com/your-username/gitagent"
+"Bug Reports" = "https://github.com/your-username/gitagent/issues"
+"Source" = "https://github.com/your-username/gitagent"
+Documentation = "https://github.com/your-username/gitagent#readme"
+
+[project.scripts]
+gitagent = "cli:main"
+gitagent-setup = "setup_user:setup_user"
+
+[tool.setuptools]
+py-modules = [
+    "cli",
+    "setup_user", 
+    "git_agent_langgraph",
+    "main",
+    "demo",
+    "routes"
+]
+include-package-data = true
+
+[tool.setuptools.packages.find]
+include = ["utils*", "services*", "controllers*"]
+
+[tool.setuptools.package-data]
+"*" = ["*.md", "*.txt", "gitagent"] 
